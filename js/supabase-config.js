@@ -4,8 +4,8 @@
 // rules in supabase/schema.sql decide what it may do.
 // While SUPABASE_URL is empty the site runs in DEMO MODE: orders and projects are
 // saved only in the current browser, and the demo staff password is "admin123".
-export const SUPABASE_URL = '';
-export const SUPABASE_ANON_KEY = '';
+export const SUPABASE_URL = 'https://yolsetnpwambdqjjezng.supabase.co';
+export const SUPABASE_ANON_KEY = 'sb_publishable_RBFb22-l7Hd0zuwBSIdv7g_9fpB4t9K'; // publishable key: safe in a website
 
 // Only these accounts can open the staff area, whether they sign in with
 // email + password, Google, or Apple. Keep this list the same as in supabase/schema.sql.

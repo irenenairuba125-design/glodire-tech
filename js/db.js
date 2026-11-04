@@ -2,7 +2,7 @@
 // Uses Supabase (Auth + Postgres database) when configured, otherwise a localStorage demo.
 import { SUPABASE_URL, SUPABASE_ANON_KEY, STAFF_EMAILS } from './supabase-config.js';
 
-const SDK = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/+esm';
+const SDK = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.3/+esm';
 export const DEMO = !SUPABASE_URL;
 const DEMO_PASSWORD = 'admin123';
 
