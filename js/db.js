@@ -194,6 +194,20 @@ export async function login(email, password) {
   }
 }
 
+// Which "Continue with ..." sign-in methods are switched on in Supabase
+// (Authentication -> Providers). Demo mode shows them all.
+export async function enabledProviders() {
+  if (DEMO) return ['google', 'apple'];
+  try {
+    const res = await fetch(`${SUPABASE_URL}/auth/v1/settings`, { headers: { apikey: SUPABASE_ANON_KEY } });
+    if (!res.ok) return [];
+    const { external = {} } = await res.json();
+    return Object.keys(external).filter((p) => external[p] === true);
+  } catch {
+    return []; // offline or blocked: email login still works
+  }
+}
+
 // provider: 'google' | 'apple'. Leaves the page, then comes back here signed in.
 export async function loginWith(provider) {
   if (DEMO) {

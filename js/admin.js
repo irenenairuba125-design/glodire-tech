@@ -3,7 +3,7 @@ import {
   watchOrders, updateOrderStatus, deleteOrder,
   watchProjects, addProject, deleteProject,
   watchAdmins, addAdmin, removeAdmin,
-  signUp, resetPassword, setNewPassword,
+  signUp, resetPassword, setNewPassword, enabledProviders,
 } from './db.js';
 
 const $ = (id) => document.getElementById(id);
@@ -115,6 +115,18 @@ $('login-form').addEventListener('submit', async (e) => {
     note.textContent = err.message;
     note.className = 'form-note error';
   }
+});
+
+// Only show "Continue with Google/Apple" for sign-in methods switched on in Supabase,
+// so staff never land on a "provider is not enabled" error page.
+enabledProviders().then((on) => {
+  let any = false;
+  document.querySelectorAll('[data-provider]').forEach((btn) => {
+    btn.hidden = !on.includes(btn.dataset.provider);
+    any ||= !btn.hidden;
+  });
+  $('social-login').hidden = !any;
+  $('social-divider').hidden = !any;
 });
 
 document.querySelectorAll('[data-provider]').forEach((btn) => {

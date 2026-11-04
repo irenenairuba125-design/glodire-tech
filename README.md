@@ -5,9 +5,11 @@
 | `index.html` | Public website. The contact form now saves **orders**, and the **Projects** section shows the work you publish. |
 | `admin.html` | Staff area (also linked as "Staff login" in the footer). Log in to see orders and manage projects. |
 
-## Trying it now (demo mode)
+## Status
 
-The site must be opened through a local web server (not by double-clicking the file), because it uses JavaScript modules:
+The site is **connected to Supabase** (project `yolsetnpwambdqjjezng`): the database tables and security rules from `supabase/schema.sql` are installed, and orders from any device show up live in `admin.html`. Staff currently log in with **email and password**. The Google and Apple buttons appear on the login page by themselves once those sign-in methods are turned on in Supabase (step 5 below).
+
+To preview it on your computer, open it through a local web server (not by double-clicking the file), because it uses JavaScript modules:
 
 ```
 cd C:\Users\Admin\Desktop\campany
@@ -16,9 +18,7 @@ python -m http.server 8000
 
 Then open <http://localhost:8000> for the site and <http://localhost:8000/admin.html> for the staff area.
 
-While `js/supabase-config.js` is empty, the site runs in **demo mode**:
-- Orders and projects are saved only in *that* browser, so a client's order on their phone will **not** reach you yet.
-- Staff login accepts any **staff email** (see below) with the password `admin123`. The Google and Apple buttons ask you to type an email instead of opening a real sign-in window.
+**Demo mode:** if `SUPABASE_URL` in `js/supabase-config.js` is left empty, the site runs offline. Data is saved only in that browser, and any admin email logs in with the password `admin123`.
 
 ## Who can log in (Admins tab)
 
@@ -30,19 +30,21 @@ A newly added admin opens `admin.html` and either:
 
 **Forgot password?** on the login form emails a reset link.
 
-## Going live with Supabase (free)
+## Supabase setup checklist
 
-1. Go to <https://supabase.com>, sign in (e.g. with glodiretech@gmail.com), and click **New project**. Name it `glodire-tech`, choose a strong database password, and pick a nearby region (e.g. *West EU*). Wait about a minute for it to start.
-2. **SQL Editor -> New query**: paste everything from `supabase/schema.sql` and click **Run**. This creates the `orders` and `projects` tables and the security rules.
-3. **Project Settings -> API**: copy the **Project URL** and the **anon public** key into `js/supabase-config.js`.
-4. **Authentication -> URL Configuration**: set **Site URL** to your website address, and under **Redirect URLs** add your staff page, e.g. `https://www.glodiretech.com/admin.html` (and `http://localhost:8000/admin.html` for testing).
+Steps 1 to 3 are done. Steps 4 to 6 still need to be done in the Supabase dashboard and with your web host.
+
+1. ✅ Go to <https://supabase.com>, sign in (e.g. with glodiretech@gmail.com), and click **New project**. Name it `glodire-tech`, choose a strong database password, and pick a nearby region (e.g. *West EU*). Wait about a minute for it to start.
+2. ✅ **SQL Editor -> New query**: paste everything from `supabase/schema.sql` and click **Run**. This creates the `orders` and `projects` tables and the security rules.
+3. ✅ **Project Settings -> API Keys**: copy the **Project URL** and the **publishable** key into `js/supabase-config.js`.
+4. **Authentication -> URL Configuration**: set **Site URL** to your website address, and under **Redirect URLs** add your staff page, e.g. `https://www.glodiretech.com/admin.html` (and `http://localhost:8000/admin.html` for testing). **Do this first:** until it is done, the "confirm your email" and "reset password" links that Supabase emails will open the wrong address.
 5. **Authentication -> Providers** (sign-in methods):
    - **Email**: on by default. Then on **Authentication -> Users -> Add user -> Create new user**, add each staff member who wants a password and tick **Auto Confirm User**.
-   - **Google**: turn it on. It needs a Client ID and Secret from Google Cloud Console (APIs & Services -> Credentials -> OAuth client ID, type *Web application*), with the callback URL that Supabase shows you added as an authorised redirect URI.
+   - **Google** (recommended, since most admins use Gmail): turn it on. It needs a Client ID and Secret from Google Cloud Console (APIs & Services -> Credentials -> OAuth client ID, type *Web application*), with the callback URL that Supabase shows you added as an authorised redirect URI.
    - **Apple** (optional): needs a paid Apple Developer account (US$99 a year). When staff sign in with Apple, they must choose **Share My Email**, because the "Hide My Email" address won't be on the staff list.
 6. Upload the whole folder to your web host.
 
-Once the config is filled in, the demo banner disappears and orders from any device show up live in `admin.html`.
+If you change `supabase/schema.sql` later, run the whole file again in the SQL Editor. It is safe to re-run and keeps your data.
 
 ## How it works
 
