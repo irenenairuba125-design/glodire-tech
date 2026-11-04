@@ -231,7 +231,9 @@ export function onAuth(cb, onDenied = () => {}, onRecovery = () => {}) {
     let last; // avoid re-rendering on token refreshes
     sb.auth.onAuthStateChange((event, session) => {
       const u = session?.user;
-      if (event === 'PASSWORD_RECOVERY') { setTimeout(onRecovery, 0); return; }
+      // Show the new-password form, but still check the user below so the dashboard
+      // can open once the new password is saved.
+      if (event === 'PASSWORD_RECOVERY') setTimeout(onRecovery, 0);
       // Don't call Supabase directly inside this callback; defer it.
       setTimeout(async () => {
         const email = u ? normEmail(u.email) : null;

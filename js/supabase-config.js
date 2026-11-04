@@ -13,4 +13,5 @@ export const STAFF_EMAILS = [
   'gloria@glodiretech.com',
   'divinenamutaawe@gmail.com',
   'irenenairuba23@gmail.com',
+  'glodiretech@gmail.com',
 ];
