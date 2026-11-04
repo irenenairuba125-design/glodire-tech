@@ -104,7 +104,7 @@ $('login-form').addEventListener('submit', async (e) => {
     if (signUpMode) {
       await signUp(email, $('password').value);
       $('login-form').reset();
-      note.textContent = `Almost done: open the confirmation email sent to ${email}, click the link, then log in here.`;
+      note.textContent = `Almost done: open the confirmation email sent to ${email} (check Spam too), click the link, then log in here. No email after 10 minutes? Ask the site owner to confirm your account in Supabase.`;
       note.className = 'form-note success';
       return;
     }

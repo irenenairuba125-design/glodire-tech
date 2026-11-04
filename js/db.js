@@ -190,7 +190,7 @@ export async function login(email, password) {
     if (/confirm/i.test(error.message)) {
       throw new Error(`Please confirm your email first: open the link Supabase sent to ${email}, then log in again.`);
     }
-    throw new Error('Incorrect email or password.');
+    throw new Error('Incorrect email or password. First time here? Click "New admin? Create your password" below. Forgot it? Click "Forgot password?".');
   }
 }
 
