@@ -1,25 +1,26 @@
 // Data layer shared by the public site and the admin page.
-// Uses Firebase (Auth + Firestore) when configured, otherwise a localStorage demo.
-import { firebaseConfig, STAFF_EMAILS } from './firebase-config.js';
+// Uses Supabase (Auth + Postgres database) when configured, otherwise a localStorage demo.
+import { SUPABASE_URL, SUPABASE_ANON_KEY, STAFF_EMAILS } from './supabase-config.js';
 
-const SDK = 'https://www.gstatic.com/firebasejs/10.12.5';
-export const DEMO = !firebaseConfig.apiKey;
+const SDK = 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/+esm';
+export const DEMO = !SUPABASE_URL;
 const DEMO_PASSWORD = 'admin123';
 
-const toDate = (v) => (v && typeof v.toDate === 'function' ? v.toDate() : v ? new Date(v) : new Date());
+const toDate = (v) => (v ? new Date(v) : new Date());
 
-let fb; // lazily loaded Firebase modules + instances
-async function firebase() {
-  if (fb) return fb;
-  const [app, fs, auth] = await Promise.all([
-    import(`${SDK}/firebase-app.js`),
-    import(`${SDK}/firebase-firestore.js`),
-    import(`${SDK}/firebase-auth.js`),
-  ]);
-  const instance = app.initializeApp(firebaseConfig);
-  fb = { fs, auth, db: fs.getFirestore(instance), au: auth.getAuth(instance) };
-  return fb;
+let sbPromise; // lazily loaded Supabase client
+function supabase() {
+  if (!sbPromise) {
+    sbPromise = import(SDK).then(({ createClient }) => createClient(SUPABASE_URL, SUPABASE_ANON_KEY));
+  }
+  return sbPromise;
 }
+
+// Supabase returns { data, error }; turn errors into exceptions.
+const check = ({ data, error }) => { if (error) throw error; return data; };
+
+// Database rows use created_at; the pages use createdAt.
+const fromRow = ({ created_at: createdAt, ...rest }) => ({ ...rest, createdAt: toDate(createdAt) });
 
 /* ---------- Demo (localStorage) helpers ---------- */
 const read = (key) => { try { return JSON.parse(localStorage.getItem(key)) || []; } catch { return []; } };
@@ -38,42 +39,55 @@ const demoWatch = (key, cb) => {
   return () => { window.removeEventListener('glodire-db', emit); window.removeEventListener('storage', onStorage); };
 };
 
-/* ---------- Generic collection helpers ---------- */
-async function add(col, data) {
-  if (DEMO) { write(col, [...read(col), { id: newId(), ...data, createdAt: Date.now() }]); return; }
-  const { fs, db } = await firebase();
-  await fs.addDoc(fs.collection(db, col), { ...data, createdAt: fs.serverTimestamp() });
+/* ---------- Generic table helpers ---------- */
+async function add(table, data) {
+  if (DEMO) { write(table, [...read(table), { id: newId(), status: table === 'orders' ? 'new' : undefined, ...data, createdAt: Date.now() }]); return; }
+  const sb = await supabase();
+  check(await sb.from(table).insert(data)); // status and created_at are set by the database
 }
 
-async function update(col, id, data) {
-  if (DEMO) { write(col, read(col).map((d) => (d.id === id ? { ...d, ...data } : d))); return; }
-  const { fs, db } = await firebase();
-  await fs.updateDoc(fs.doc(db, col, id), data);
+async function update(table, id, data) {
+  if (DEMO) { write(table, read(table).map((d) => (d.id === id ? { ...d, ...data } : d))); return; }
+  const sb = await supabase();
+  check(await sb.from(table).update(data).eq('id', id));
 }
 
-async function remove(col, id) {
-  if (DEMO) { write(col, read(col).filter((d) => d.id !== id)); return; }
-  const { fs, db } = await firebase();
-  await fs.deleteDoc(fs.doc(db, col, id));
+async function remove(table, id) {
+  if (DEMO) { write(table, read(table).filter((d) => d.id !== id)); return; }
+  const sb = await supabase();
+  check(await sb.from(table).delete().eq('id', id));
 }
 
-// Calls cb(list) now and whenever the collection changes. Returns an unsubscribe function.
-function watch(col, cb, onError = console.error) {
-  if (DEMO) return demoWatch(col, cb);
-  let unsub = () => {};
+// Calls cb(list) now and whenever the table changes. Returns an unsubscribe function.
+let channelCount = 0;
+function watch(table, cb, onError = console.error) {
+  if (DEMO) return demoWatch(table, cb);
   let stopped = false;
-  firebase().then(({ fs, db }) => {
+  let channel;
+  const load = async () => {
+    try {
+      const sb = await supabase();
+      const rows = check(await sb.from(table).select('*').order('created_at', { ascending: false }));
+      if (!stopped) cb(rows.map(fromRow));
+    } catch (err) {
+      if (!stopped) onError(err);
+    }
+  };
+  supabase().then((sb) => {
     if (stopped) return;
-    const q = fs.query(fs.collection(db, col), fs.orderBy('createdAt', 'desc'));
-    unsub = fs.onSnapshot(q, (snap) => {
-      cb(snap.docs.map((d) => ({ id: d.id, ...d.data(), createdAt: toDate(d.data().createdAt) })));
-    }, onError);
+    channel = sb.channel(`${table}-${++channelCount}`)
+      .on('postgres_changes', { event: '*', schema: 'public', table }, load)
+      .subscribe();
+    load();
   }).catch(onError);
-  return () => { stopped = true; unsub(); };
+  return () => {
+    stopped = true;
+    if (channel) supabase().then((sb) => sb.removeChannel(channel));
+  };
 }
 
 /* ---------- Orders ---------- */
-export const addOrder = (order) => add('orders', { ...order, status: 'new' });
+export const addOrder = (order) => add('orders', order);
 export const updateOrderStatus = (id, status) => update('orders', id, { status });
 export const deleteOrder = (id) => remove('orders', id);
 export const watchOrders = (cb, onError) => watch('orders', cb, onError);
@@ -84,11 +98,10 @@ export const deleteProject = (id) => remove('projects', id);
 export const watchProjects = (cb, onError) => watch('projects', cb, onError);
 
 /* ---------- Auth ---------- */
-// Only emails listed in STAFF_EMAILS (js/firebase-config.js) may use the staff area,
-// whichever way they sign in. firestore.rules enforces the same list on the database.
+// Only emails listed in STAFF_EMAILS (js/supabase-config.js) may use the staff area,
+// whichever way they sign in. supabase/schema.sql enforces the same list on the database.
 const isStaff = (email) => STAFF_EMAILS.map((e) => e.toLowerCase()).includes((email || '').toLowerCase());
 const NOT_STAFF = (email) => new Error(`${email || 'This account'} is not on the staff list. Ask an admin to add it.`);
-let authError = null; // why the last sign-in was rejected
 
 function demoSignIn(email) {
   if (!isStaff(email)) throw NOT_STAFF(email);
@@ -102,21 +115,18 @@ export async function login(email, password) {
     demoSignIn(email);
     return;
   }
-  const { auth, au } = await firebase();
-  let cred;
-  try {
-    cred = await auth.signInWithEmailAndPassword(au, email, password);
-  } catch {
+  if (!isStaff(email)) throw NOT_STAFF(email);
+  const sb = await supabase();
+  const { error } = await sb.auth.signInWithPassword({ email, password });
+  if (error) {
+    if (/confirm/i.test(error.message)) {
+      throw new Error(`Please confirm your email first: open the link Supabase sent to ${email}, then log in again.`);
+    }
     throw new Error('Incorrect email or password.');
-  }
-  if (!cred.user.emailVerified) {
-    await auth.sendEmailVerification(cred.user);
-    await auth.signOut(au);
-    throw new Error(`First time? We sent a verification link to ${email}. Click it, then log in again.`);
   }
 }
 
-// provider: 'google' | 'apple'
+// provider: 'google' | 'apple'. Leaves the page, then comes back here signed in.
 export async function loginWith(provider) {
   if (DEMO) {
     const name = provider === 'apple' ? 'Apple' : 'Google';
@@ -124,37 +134,19 @@ export async function loginWith(provider) {
     if (email) demoSignIn(email.trim());
     return;
   }
-  const { auth, au } = await firebase();
-  let p;
-  if (provider === 'apple') {
-    p = new auth.OAuthProvider('apple.com');
-    p.addScope('email');
-    p.addScope('name');
-  } else {
-    p = new auth.GoogleAuthProvider();
-    p.setCustomParameters({ prompt: 'select_account' });
-  }
-  authError = null;
-  try {
-    await auth.signInWithPopup(au, p);
-  } catch (err) {
-    if (err.code === 'auth/popup-blocked' || err.code === 'auth/operation-not-supported-in-environment') {
-      await auth.signInWithRedirect(au, p); // some phone browsers block popups
-      return;
-    }
-    if (err.code === 'auth/popup-closed-by-user' || err.code === 'auth/cancelled-popup-request') return;
-    if (err.code === 'auth/account-exists-with-different-credential') {
-      throw new Error('This email already signs in another way. Please use that method.');
-    }
-    throw new Error('Sign-in failed. Please try again.');
-  }
-  if (authError) throw authError;
+  const sb = await supabase();
+  const redirectTo = window.location.href.split('#')[0].split('?')[0];
+  const options = provider === 'google'
+    ? { redirectTo, queryParams: { prompt: 'select_account' } }
+    : { redirectTo };
+  const { error } = await sb.auth.signInWithOAuth({ provider, options });
+  if (error) throw new Error('Sign-in failed. Please try again.');
 }
 
 export async function logout() {
   if (DEMO) { sessionStorage.removeItem('glodire-admin'); window.dispatchEvent(new Event('glodire-auth')); return; }
-  const { auth, au } = await firebase();
-  await auth.signOut(au);
+  const sb = await supabase();
+  await sb.auth.signOut();
 }
 
 // Calls cb(user | null) with { email } whenever the login state changes.
@@ -166,17 +158,20 @@ export function onAuth(cb, onDenied = () => {}) {
     emit();
     return;
   }
-  firebase().then(({ auth, au }) => {
-    auth.getRedirectResult(au).catch(() => {});
-    auth.onAuthStateChanged(au, (u) => {
+  supabase().then((sb) => {
+    let last; // avoid re-rendering on token refreshes
+    sb.auth.onAuthStateChange((_event, session) => {
+      const u = session?.user;
       if (u && !isStaff(u.email)) {
-        authError = NOT_STAFF(u.email);
-        onDenied(authError);
-        auth.signOut(au);
+        onDenied(NOT_STAFF(u.email));
+        setTimeout(() => sb.auth.signOut(), 0); // don't call Supabase inside this callback
         return;
       }
-      if (u && !u.emailVerified) { auth.signOut(au); return; }
-      cb(u ? { email: u.email } : null);
+      if (u && !u.email_confirmed_at) { setTimeout(() => sb.auth.signOut(), 0); return; }
+      const email = u ? u.email : null;
+      if (email === last) return;
+      last = email;
+      cb(u ? { email } : null);
     });
-  });
+  }).catch((err) => { console.error(err); cb(null); });
 }

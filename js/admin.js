@@ -66,7 +66,7 @@ $('logout').addEventListener('click', () => logout());
 
 function showError(err) {
   console.error(err);
-  alert('Could not load data. Check your internet connection and Firebase setup.\n\n' + (err.message || err));
+  alert('Could not load data. Check your internet connection and Supabase setup.\n\n' + (err.message || err));
 }
 
 /* ---------- Tabs ---------- */
