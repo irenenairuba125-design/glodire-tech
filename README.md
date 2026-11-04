@@ -20,9 +20,15 @@ While `js/supabase-config.js` is empty, the site runs in **demo mode**:
 - Orders and projects are saved only in *that* browser, so a client's order on their phone will **not** reach you yet.
 - Staff login accepts any **staff email** (see below) with the password `admin123`. The Google and Apple buttons ask you to type an email instead of opening a real sign-in window.
 
-## Who can log in
+## Who can log in (Admins tab)
 
-Only the emails in `STAFF_EMAILS` in `js/supabase-config.js` can open the staff area, whether they use Google, Apple, or email and password. Anyone else is turned away, even with a real Google or Apple account. `supabase/schema.sql` contains the same list (in the `is_staff` function), so the database also refuses everyone else. **When you add or remove a staff member, change both lists** and run the SQL again.
+Admins are managed on the **Admins** tab of `admin.html`, and the list lives in the `admins` table in Supabase. Any admin can add another admin's email or remove one, but nobody can remove themselves. Anyone not on the list is turned away, even with a real Google or Apple account, and the database also refuses them (see `is_staff()` in `supabase/schema.sql`).
+
+A newly added admin opens `admin.html` and either:
+- clicks **Continue with Google** (once Google sign-in is turned on in Supabase), or
+- clicks **New admin? Create your password**, enters their email and a password, then clicks the confirmation link Supabase emails them.
+
+**Forgot password?** on the login form emails a reset link.
 
 ## Going live with Supabase (free)
 

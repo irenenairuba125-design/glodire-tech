@@ -97,16 +97,85 @@ export const addProject = (project) => add('projects', project);
 export const deleteProject = (id) => remove('projects', id);
 export const watchProjects = (cb, onError) => watch('projects', cb, onError);
 
+/* ---------- Admins ---------- */
+// The admins table (managed on the Admins tab) decides who may use the staff area.
+const normEmail = (e) => (e || '').trim().toLowerCase();
+const demoAdmins = () => {
+  if (!localStorage.getItem('admins')) {
+    write('admins', STAFF_EMAILS.map((email) => ({ email: normEmail(email), createdAt: Date.now() })));
+  }
+  return read('admins');
+};
+
+export function watchAdmins(cb, onError) {
+  if (DEMO) { demoAdmins(); return demoWatch('admins', cb); }
+  return watch('admins', cb, onError);
+}
+
+export async function addAdmin(email) {
+  const e = normEmail(email);
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)) throw new Error('Please enter a valid email address.');
+  if (DEMO) {
+    if (demoAdmins().some((a) => a.email === e)) throw new Error(`${e} is already an admin.`);
+    write('admins', [...demoAdmins(), { email: e, createdAt: Date.now() }]);
+    return;
+  }
+  const sb = await supabase();
+  const { error } = await sb.from('admins').insert({ email: e });
+  if (error?.code === '23505') throw new Error(`${e} is already an admin.`);
+  if (error) throw error;
+}
+
+export async function removeAdmin(email) {
+  const e = normEmail(email);
+  if (DEMO) { write('admins', demoAdmins().filter((a) => a.email !== e)); return; }
+  const sb = await supabase();
+  check(await sb.from('admins').delete().eq('email', e));
+}
+
 /* ---------- Auth ---------- */
-// Only emails listed in STAFF_EMAILS (js/supabase-config.js) may use the staff area,
-// whichever way they sign in. supabase/schema.sql enforces the same list on the database.
-const isStaff = (email) => STAFF_EMAILS.map((e) => e.toLowerCase()).includes((email || '').toLowerCase());
-const NOT_STAFF = (email) => new Error(`${email || 'This account'} is not on the staff list. Ask an admin to add it.`);
+const NOT_STAFF = (email) => new Error(`${email || 'This account'} is not an admin. Ask an existing admin to add it on the Admins tab.`);
+
+async function checkStaff(sb) {
+  const { data, error } = await sb.rpc('is_staff');
+  if (error) throw error;
+  return data === true;
+}
 
 function demoSignIn(email) {
-  if (!isStaff(email)) throw NOT_STAFF(email);
-  sessionStorage.setItem('glodire-admin', email);
+  if (!demoAdmins().some((a) => a.email === normEmail(email))) throw NOT_STAFF(email);
+  sessionStorage.setItem('glodire-admin', normEmail(email));
   window.dispatchEvent(new Event('glodire-auth'));
+}
+
+const adminPageUrl = () => window.location.href.split('#')[0].split('?')[0];
+
+// First-time setup for a new admin: creates their password. Supabase emails a
+// confirmation link; after clicking it they can log in normally.
+export async function signUp(email, password) {
+  if (DEMO) throw new Error('Demo mode: just log in with the password "admin123".');
+  if (password.length < 8) throw new Error('Please choose a password with at least 8 characters.');
+  const sb = await supabase();
+  const { data, error } = await sb.auth.signUp({ email: normEmail(email), password, options: { emailRedirectTo: adminPageUrl() } });
+  if (error) throw new Error(error.message);
+  // Supabase hides whether the email already had an account; identities is empty in that case.
+  if (data.user && data.user.identities && data.user.identities.length === 0) {
+    throw new Error('This email already has a password. Log in instead, or use "Forgot password?".');
+  }
+}
+
+export async function resetPassword(email) {
+  if (DEMO) throw new Error('Demo mode: the password is "admin123".');
+  const sb = await supabase();
+  const { error } = await sb.auth.resetPasswordForEmail(normEmail(email), { redirectTo: adminPageUrl() });
+  if (error) throw new Error(error.message);
+}
+
+export async function setNewPassword(password) {
+  if (password.length < 8) throw new Error('Please choose a password with at least 8 characters.');
+  const sb = await supabase();
+  const { error } = await sb.auth.updateUser({ password });
+  if (error) throw new Error(error.message);
 }
 
 export async function login(email, password) {
@@ -115,7 +184,6 @@ export async function login(email, password) {
     demoSignIn(email);
     return;
   }
-  if (!isStaff(email)) throw NOT_STAFF(email);
   const sb = await supabase();
   const { error } = await sb.auth.signInWithPassword({ email, password });
   if (error) {
@@ -135,7 +203,7 @@ export async function loginWith(provider) {
     return;
   }
   const sb = await supabase();
-  const redirectTo = window.location.href.split('#')[0].split('?')[0];
+  const redirectTo = adminPageUrl();
   const options = provider === 'google'
     ? { redirectTo, queryParams: { prompt: 'select_account' } }
     : { redirectTo };
@@ -150,8 +218,9 @@ export async function logout() {
 }
 
 // Calls cb(user | null) with { email } whenever the login state changes.
-// onDenied(error) is called when someone who is not on the staff list signs in.
-export function onAuth(cb, onDenied = () => {}) {
+// onDenied(error) is called when someone who is not an admin signs in.
+// onRecovery() is called when someone arrives from a "reset password" email.
+export function onAuth(cb, onDenied = () => {}, onRecovery = () => {}) {
   if (DEMO) {
     const emit = () => { const e = sessionStorage.getItem('glodire-admin'); cb(e ? { email: e } : null); };
     window.addEventListener('glodire-auth', emit);
@@ -160,18 +229,26 @@ export function onAuth(cb, onDenied = () => {}) {
   }
   supabase().then((sb) => {
     let last; // avoid re-rendering on token refreshes
-    sb.auth.onAuthStateChange((_event, session) => {
+    sb.auth.onAuthStateChange((event, session) => {
       const u = session?.user;
-      if (u && !isStaff(u.email)) {
-        onDenied(NOT_STAFF(u.email));
-        setTimeout(() => sb.auth.signOut(), 0); // don't call Supabase inside this callback
-        return;
-      }
-      if (u && !u.email_confirmed_at) { setTimeout(() => sb.auth.signOut(), 0); return; }
-      const email = u ? u.email : null;
-      if (email === last) return;
-      last = email;
-      cb(u ? { email } : null);
+      if (event === 'PASSWORD_RECOVERY') { setTimeout(onRecovery, 0); return; }
+      // Don't call Supabase directly inside this callback; defer it.
+      setTimeout(async () => {
+        const email = u ? normEmail(u.email) : null;
+        if (u) {
+          let ok = false;
+          try { ok = !!u.email_confirmed_at && await checkStaff(sb); } catch (err) { console.error(err); }
+          if (!ok) {
+            onDenied(NOT_STAFF(u.email));
+            last = undefined; // so the sign-out below shows the login form
+            await sb.auth.signOut();
+            return;
+          }
+        }
+        if (email === last) return;
+        last = email;
+        cb(u ? { email } : null);
+      }, 0);
     });
   }).catch((err) => { console.error(err); cb(null); });
 }

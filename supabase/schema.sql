@@ -22,9 +22,20 @@ create table if not exists public.projects (
   created_at  timestamptz not null default now()
 );
 
--- ---------- Who counts as staff ----------
--- Must match STAFF_EMAILS in js/supabase-config.js.
--- Staff = signed in, email confirmed, and email on this list.
+-- ---------- Admins (who may use the staff area) ----------
+-- Managed from the "Admins" tab in admin.html. These first admins are added once.
+create table if not exists public.admins (
+  email      text primary key check (email = lower(email) and email like '%_@_%' and char_length(email) <= 200),
+  created_at timestamptz not null default now()
+);
+insert into public.admins (email) values
+  ('gloria@glodiretech.com'),
+  ('divinenamutaawe@gmail.com'),
+  ('irenenairuba23@gmail.com'),
+  ('glodiretech@gmail.com')
+on conflict do nothing;
+
+-- Staff = signed in, email confirmed, and email in the admins table.
 create or replace function public.is_staff()
 returns boolean
 language sql
@@ -34,13 +45,9 @@ set search_path = ''
 as $$
   select exists (
     select 1 from auth.users u
+    join public.admins a on a.email = lower(u.email)
     where u.id = auth.uid()
       and u.email_confirmed_at is not null
-      and lower(u.email) = any (array[
-        'gloria@glodiretech.com',
-        'divinenamutaawe@gmail.com',
-        'irenenairuba23@gmail.com'
-      ])
   );
 $$;
 
@@ -80,6 +87,21 @@ create policy "everyone sees projects" on public.projects for select to anon, au
 create policy "staff add projects"     on public.projects for insert to authenticated with check (public.is_staff());
 create policy "staff remove projects"  on public.projects for delete to authenticated using (public.is_staff());
 
+-- Admins: only staff can see the list, add admins, or remove OTHER admins
+-- (nobody can remove themselves, so the team can't lock itself out by accident).
+alter table public.admins enable row level security;
+revoke all on public.admins from anon, authenticated;
+grant select, delete on public.admins to authenticated;
+grant insert (email) on public.admins to authenticated;
+
+drop policy if exists "staff see admins"           on public.admins;
+drop policy if exists "staff add admins"           on public.admins;
+drop policy if exists "staff remove other admins"  on public.admins;
+create policy "staff see admins"          on public.admins for select to authenticated using (public.is_staff());
+create policy "staff add admins"          on public.admins for insert to authenticated with check (public.is_staff());
+create policy "staff remove other admins" on public.admins for delete to authenticated
+  using (public.is_staff() and email <> lower(auth.jwt() ->> 'email'));
+
 -- ---------- Live updates ----------
 -- Lets the staff page and website refresh by themselves when something changes.
 do $$
@@ -89,5 +111,8 @@ begin
   end if;
   if not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and tablename = 'projects') then
     alter publication supabase_realtime add table public.projects;
+  end if;
+  if not exists (select 1 from pg_publication_tables where pubname = 'supabase_realtime' and tablename = 'admins') then
+    alter publication supabase_realtime add table public.admins;
   end if;
 end $$;

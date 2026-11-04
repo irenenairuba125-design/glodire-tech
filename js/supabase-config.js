@@ -7,8 +7,8 @@
 export const SUPABASE_URL = 'https://yolsetnpwambdqjjezng.supabase.co';
 export const SUPABASE_ANON_KEY = 'sb_publishable_RBFb22-l7Hd0zuwBSIdv7g_9fpB4t9K'; // publishable key: safe in a website
 
-// Only these accounts can open the staff area, whether they sign in with
-// email + password, Google, or Apple. Keep this list the same as in supabase/schema.sql.
+// The first admins. Who can open the staff area is now managed on the Admins tab
+// of admin.html (stored in the database); this list is only used in demo mode.
 export const STAFF_EMAILS = [
   'gloria@glodiretech.com',
   'divinenamutaawe@gmail.com',

@@ -2,6 +2,8 @@ import {
   DEMO, login, loginWith, logout, onAuth,
   watchOrders, updateOrderStatus, deleteOrder,
   watchProjects, addProject, deleteProject,
+  watchAdmins, addAdmin, removeAdmin,
+  signUp, resetPassword, setNewPassword,
 } from './db.js';
 
 const $ = (id) => document.getElementById(id);
@@ -16,17 +18,81 @@ $('demo-banner').hidden = !DEMO;
 
 /* ---------- Auth ---------- */
 let stopWatchers = [];
+let currentEmail = '';
+let recovering = false; // true while a reset-link visitor is choosing a new password
+let pendingUser = null;
 
 function handleAuth(user) {
+  pendingUser = user;
+  if (recovering) return;
   stopWatchers.forEach((stop) => stop());
   stopWatchers = [];
   $('login-view').hidden = !!user;
   $('dash-view').hidden = !user;
   $('admin-user').hidden = !user;
   if (!user) return;
+  $('reset-view').hidden = true;
+  currentEmail = user.email.toLowerCase();
   $('admin-email').textContent = user.email;
-  stopWatchers = [watchOrders(renderOrders, showError), watchProjects(renderProjects, showError)];
+  stopWatchers = [
+    watchOrders(renderOrders, showError),
+    watchProjects(renderProjects, showError),
+    watchAdmins(renderAdmins, showError),
+  ];
 }
+
+// Login form has two modes: log in, or (new admin) create a password.
+let signUpMode = false;
+$('mode-toggle').addEventListener('click', () => {
+  signUpMode = !signUpMode;
+  $('login-submit').textContent = signUpMode ? 'Create password' : 'Log in';
+  $('mode-toggle').textContent = signUpMode ? 'Already have a password? Log in' : 'New admin? Create your password';
+  $('password').autocomplete = signUpMode ? 'new-password' : 'current-password';
+  $('password').minLength = signUpMode ? 8 : 0;
+  $('forgot').hidden = signUpMode;
+  $('login-note').textContent = '';
+});
+
+$('forgot').addEventListener('click', async () => {
+  const note = $('login-note');
+  const email = $('email').value.trim();
+  if (!email) {
+    note.textContent = 'Type your email above first, then click "Forgot password?" again.';
+    note.className = 'form-note error';
+    return;
+  }
+  try {
+    await resetPassword(email);
+    note.textContent = `If ${email} has an account, a reset link is on its way. Check your inbox.`;
+    note.className = 'form-note success';
+  } catch (err) {
+    note.textContent = err.message;
+    note.className = 'form-note error';
+  }
+});
+
+function showRecovery() {
+  recovering = true;
+  $('login-view').hidden = true;
+  $('dash-view').hidden = true;
+  $('reset-view').hidden = false;
+}
+
+$('reset-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const note = $('reset-note');
+  try {
+    await setNewPassword($('new-password').value);
+    e.target.reset();
+    note.textContent = '';
+    $('reset-view').hidden = true;
+    recovering = false;
+    handleAuth(pendingUser);
+  } catch (err) {
+    note.textContent = err.message;
+    note.className = 'form-note error';
+  }
+});
 
 $('login-form').addEventListener('submit', async (e) => {
   e.preventDefault();
@@ -34,7 +100,15 @@ $('login-form').addEventListener('submit', async (e) => {
   note.textContent = 'Signing in…';
   note.className = 'form-note';
   try {
-    await login($('email').value.trim(), $('password').value);
+    const email = $('email').value.trim();
+    if (signUpMode) {
+      await signUp(email, $('password').value);
+      $('login-form').reset();
+      note.textContent = `Almost done: open the confirmation email sent to ${email}, click the link, then log in here.`;
+      note.className = 'form-note success';
+      return;
+    }
+    await login(email, $('password').value);
     $('login-form').reset();
     note.textContent = '';
   } catch (err) {
@@ -70,7 +144,7 @@ function showError(err) {
 }
 
 /* ---------- Tabs ---------- */
-const tabs = [$('tab-orders'), $('tab-projects')];
+const tabs = [$('tab-orders'), $('tab-projects'), $('tab-admins')];
 tabs.forEach((tab) => tab.addEventListener('click', () => {
   tabs.forEach((t) => {
     const on = t === tab;
@@ -260,5 +334,43 @@ function renderProjects(list) {
   }));
 }
 
+/* ---------- Admins ---------- */
+$('admin-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const note = $('admin-note');
+  const email = $('a-email').value.trim();
+  try {
+    await addAdmin(email);
+    e.target.reset();
+    note.textContent = `${email} is now an admin.`;
+    note.className = 'form-note success';
+  } catch (err) {
+    console.error(err);
+    note.textContent = err.message || 'Could not add the admin. Please try again.';
+    note.className = 'form-note error';
+  }
+});
+
+function renderAdmins(list) {
+  $('admin-count').textContent = `${list.length} admin${list.length === 1 ? '' : 's'}`;
+  $('admin-list').replaceChildren(...list.map((a) => {
+    const row = el('li', 'admin-row');
+    row.append(el('span', 'admin-avatar', a.email.charAt(0).toUpperCase()));
+    const info = el('div', 'admin-info');
+    info.append(el('strong', null, a.email), el('small', null, `Added ${a.createdAt.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}`));
+    row.append(info);
+    if (a.email === currentEmail) {
+      row.append(el('span', 'you', 'You'));
+    } else {
+      const del = el('button', 'link-danger', 'Remove');
+      del.addEventListener('click', () => {
+        if (confirm(`Remove ${a.email} as an admin? They will lose access to this page.`)) removeAdmin(a.email).catch(showError);
+      });
+      row.append(del);
+    }
+    return row;
+  }));
+}
+
 // Start last, so all state above is initialised before the first render.
-onAuth(handleAuth, showDenied);
+onAuth(handleAuth, showDenied, showRecovery);
