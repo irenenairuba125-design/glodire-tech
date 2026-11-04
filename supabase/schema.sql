@@ -32,7 +32,8 @@ insert into public.admins (email) values
   ('gloria@glodiretech.com'),
   ('divinenamutaawe@gmail.com'),
   ('irenenairuba23@gmail.com'),
-  ('glodiretech@gmail.com')
+  ('glodiretech@gmail.com'),
+  ('gloriamusimenta63@gmail.com')
 on conflict do nothing;
 
 -- Staff = signed in, email confirmed, and email in the admins table.
