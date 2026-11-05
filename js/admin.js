@@ -117,20 +117,17 @@ $('login-form').addEventListener('submit', async (e) => {
   }
 });
 
-// "Continue with Google" is always offered first, then email. Apple only shows once it
-// is switched on in Supabase. A provider that is still off shows a message on click
-// instead of sending staff to a "provider is not enabled" error page.
-const ALWAYS_SHOWN = ['google'];
-let providersOn = enabledProviders();
-document.querySelectorAll('[data-provider]').forEach((btn) => {
-  btn.hidden = !ALWAYS_SHOWN.includes(btn.dataset.provider);
-});
-$('social-login').hidden = false;
-$('social-divider').hidden = false;
-providersOn.then((on) => {
+// "Continue with Google/Apple" appear above the email form as soon as that sign-in
+// method is switched on in Supabase (Authentication -> Providers). While it is off the
+// button stays hidden, so staff never see an error for it.
+enabledProviders().then((on) => {
+  let any = false;
   document.querySelectorAll('[data-provider]').forEach((btn) => {
-    if (on.includes(btn.dataset.provider)) btn.hidden = false;
+    btn.hidden = !on.includes(btn.dataset.provider);
+    any ||= !btn.hidden;
   });
+  $('social-login').hidden = !any;
+  $('social-divider').hidden = !any;
 });
 
 document.querySelectorAll('[data-provider]').forEach((btn) => {
@@ -138,13 +135,6 @@ document.querySelectorAll('[data-provider]').forEach((btn) => {
     const note = $('login-note');
     note.textContent = '';
     note.className = 'form-note';
-    const on = await providersOn;
-    if (!on.includes(btn.dataset.provider)) {
-      providersOn = enabledProviders(); // check again next time, in case it was just turned on
-      note.textContent = `${btn.textContent.trim().replace('Continue with ', '')} sign-in isn't turned on yet. Please log in with your email and password below.`;
-      note.className = 'form-note error';
-      return;
-    }
     try {
       await loginWith(btn.dataset.provider);
     } catch (err) {
