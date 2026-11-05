@@ -100,7 +100,7 @@ $('login-form').addEventListener('submit', async (e) => {
   note.textContent = 'Signing in…';
   note.className = 'form-note';
   try {
-    const email = $('email').value.trim();
+    const email = $('email').value.trim().toLowerCase();
     if (signUpMode) {
       await signUp(email, $('password').value);
       $('login-form').reset();

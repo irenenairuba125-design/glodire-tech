@@ -184,13 +184,18 @@ export async function login(email, password) {
     demoSignIn(email);
     return;
   }
+  email = normEmail(email);
   const sb = await supabase();
   const { error } = await sb.auth.signInWithPassword({ email, password });
   if (error) {
     if (/confirm/i.test(error.message)) {
       throw new Error(`Please confirm your email first: open the link Supabase sent to ${email}, then log in again.`);
     }
-    throw new Error('Incorrect email or password. First time here? Click "New admin? Create your password" below. Forgot it? Click "Forgot password?".');
+    if (/invalid login credentials/i.test(error.message)) {
+      throw new Error('Incorrect email or password. First time here? Click "New admin? Create your password" below. Forgot it? Click "Forgot password?".');
+    }
+    // Rate limits, network problems, etc.: show the real reason instead of hiding it.
+    throw new Error(`Could not log in: ${error.message}`);
   }
 }
 
@@ -253,9 +258,17 @@ export function onAuth(cb, onDenied = () => {}, onRecovery = () => {}) {
         const email = u ? normEmail(u.email) : null;
         if (u) {
           let ok = false;
-          try { ok = !!u.email_confirmed_at && await checkStaff(sb); } catch (err) { console.error(err); }
+          let reason = NOT_STAFF(u.email);
+          if (!u.email_confirmed_at) {
+            reason = new Error(`Please confirm your email first: open the link Supabase sent to ${u.email}, then log in again.`);
+          } else {
+            try { ok = await checkStaff(sb); } catch (err) {
+              console.error(err);
+              reason = new Error('Could not check your admin access. Check your internet connection and try again.');
+            }
+          }
           if (!ok) {
-            onDenied(NOT_STAFF(u.email));
+            onDenied(reason);
             last = undefined; // so the sign-out below shows the login form
             await sb.auth.signOut();
             return;
